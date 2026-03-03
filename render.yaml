@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: pdf-parser-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: GOOGLE_PROJECT_ID
+        value: niro-471913
+      - key: GOOGLE_LOCATION
+        value: us-central1
+      # Set these two manually in the Render dashboard (they contain secrets):
+      # GOOGLE_CREDENTIALS_JSON  ← paste the entire service account JSON here
+      # SMART_REPORT_ENGINE_URL  ← URL of your deployed Smart Report Engine
