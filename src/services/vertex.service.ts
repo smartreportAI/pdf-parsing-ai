@@ -15,12 +15,26 @@ import * as path from 'path';
 // ──────────────────────────────────────────────────────────────────────────────
 
 function initCredentials(): void {
-    const rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
+    let rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
+
+    // Check if we are running in a production deployment like Render
     if (rawJson) {
-        const tmpPath = path.join(os.tmpdir(), 'gcp-credentials.json');
-        fs.writeFileSync(tmpPath, rawJson, { encoding: 'utf-8' });
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
-        console.log('[vertex] Credentials written from GOOGLE_CREDENTIALS_JSON');
+        try {
+            // Validate the JSON before writing it
+            JSON.parse(rawJson);
+            const tmpPath = path.join(os.tmpdir(), 'gcp-credentials.json');
+            // Write it cleanly to the tmp file
+            fs.writeFileSync(tmpPath, rawJson, { encoding: 'utf-8' });
+            process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
+            console.log('[vertex] Successfully loaded & wrote credentials from GOOGLE_CREDENTIALS_JSON');
+        } catch (err: any) {
+            console.error('[vertex] FATAL ERROR: GOOGLE_CREDENTIALS_JSON is not a valid JSON string.');
+            console.error('[vertex] Please double-check the copying and pasting in your Render Dashboard settings.');
+        }
+    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        console.log(`[vertex] Using local credentials file at: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
+    } else {
+        console.warn('[vertex] WARNING: Neither GOOGLE_CREDENTIALS_JSON nor GOOGLE_APPLICATION_CREDENTIALS is set.');
     }
 }
 
