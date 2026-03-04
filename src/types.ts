@@ -94,6 +94,49 @@ export interface LabReportResponse {
     };
 }
 
+// ---------- Public API response format (tenantId + output + reportData) ----------
+
+export interface ParseAndReportReferenceRange {
+    min: number | null;
+    max: number | null;
+}
+
+export interface ParseAndReportParameter {
+    testName: string;
+    value: number | string;
+    unit: string | null;
+    referenceRange: ParseAndReportReferenceRange | null;
+}
+
+export interface ParseAndReportProfile {
+    profileName: string;
+    parameters: ParseAndReportParameter[];
+}
+
+/**
+ * The exact JSON shape returned by POST /parse-and-report.
+ * Top-level: tenantId, output, reportData.
+ */
+export interface ParseAndReportOutput {
+    tenantId: string;
+    output: 'pdf';
+    reportData: {
+        patientId: string | null;
+        patientName: string | null;
+        age: number | null;
+        gender: string | null;
+        labId: string | null;
+        reportId: string | null;
+        reportDate: string | null;
+        packageName: string | null;
+        profiles: ParseAndReportProfile[];
+        aiAssessment: {
+            healthScore: number;
+            overallRecommendations: string[];
+        };
+    };
+}
+
 // ---------- Smart Report Engine types (kept for the separate SRE call if needed) ----------
 
 export interface SreReferenceRange {

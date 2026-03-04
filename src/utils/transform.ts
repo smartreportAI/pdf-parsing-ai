@@ -7,6 +7,10 @@ import type {
     ProfileResult,
     LabReportResponse,
     LabReportSummary,
+    ParseAndReportOutput,
+    ParseAndReportReferenceRange,
+    ParseAndReportParameter,
+    ParseAndReportProfile,
 } from '../types';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -108,5 +112,62 @@ export function buildLabReport(geminiResult: GeminiLabResult): LabReportResponse
         profiles,
         summary,
         aiAssessment: geminiResult.aiAssessment,
+    };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Public API response format: { tenantId, output, reportData }
+// referenceRange has only min/max (no text).
+// ──────────────────────────────────────────────────────────────────────────────
+
+function toOutputReferenceRange(
+    rr: GeminiReferenceRange | null
+): ParseAndReportReferenceRange | null {
+    if (!rr) return null;
+    return {
+        min: rr.min ?? null,
+        max: rr.max ?? null,
+    };
+}
+
+/**
+ * Converts the internal lab report into the public API format:
+ * { tenantId, output: "pdf", reportData: { patientId, patientName, age, gender, profiles, aiAssessment } }
+ */
+export function toParseAndReportOutput(
+    labReport: LabReportResponse,
+    options?: { tenantId?: string }
+): ParseAndReportOutput {
+    const tenantId = options?.tenantId ?? process.env.TENANT_ID ?? 'Demo_user';
+    const { patient, profiles, aiAssessment } = labReport;
+
+    const reportDataProfiles: ParseAndReportProfile[] = profiles.map((profile) => ({
+        profileName: profile.profileName,
+        parameters: profile.parameters.map((param) => ({
+            testName: param.testName,
+            value: param.value,
+            unit: param.unit,
+            referenceRange: toOutputReferenceRange(param.referenceRange),
+        })),
+    }));
+
+    return {
+        tenantId,
+        output: 'pdf',
+        reportData: {
+            patientId: patient.patientId ?? null,
+            patientName: patient.patientName ?? null,
+            age: patient.age ?? null,
+            gender: patient.gender ?? null,
+            labId: patient.labId ?? null,
+            reportId: patient.reportId ?? null,
+            reportDate: patient.reportDate ?? null,
+            packageName: patient.packageName ?? null,
+            profiles: reportDataProfiles,
+            aiAssessment: {
+                healthScore: aiAssessment.healthScore,
+                overallRecommendations: aiAssessment.overallRecommendations,
+            },
+        },
     };
 }

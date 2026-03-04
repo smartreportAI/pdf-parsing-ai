@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { parsePdfWithGemini, getVertexCredentialStatus } from '../services/vertex.service';
-import { buildLabReport } from '../utils/transform';
+import { buildLabReport, toParseAndReportOutput } from '../utils/transform';
 
 const router = Router();
 
@@ -34,9 +34,7 @@ const upload = multer({
 //   • All test results grouped by profile
 //
 // Returns:
-//   application/json — containing the extracted patient info, 
-//   test results with HIGH/LOW/NORMAL status classifications,
-//   and per-test recommendations.
+//   application/json — { tenantId, output: "pdf", reportData: { patientId, patientName, age, gender, profiles, aiAssessment } }
 // ──────────────────────────────────────────────────────────────────────────────
 
 router.post(
@@ -72,8 +70,9 @@ router.post(
             const totalMs = Date.now() - startMs;
             console.log(`[parse-and-report] Done in ${totalMs}ms — returning JSON`);
 
-            // ── 4. Return the enriched JSON result ───────────────────────────
-            res.status(200).json(labReportJson);
+            // ── 4. Return response in { tenantId, output, reportData } format ──
+            const output = toParseAndReportOutput(labReportJson);
+            res.status(200).json(output);
 
         } catch (err: any) {
             const totalMs = Date.now() - startMs;
