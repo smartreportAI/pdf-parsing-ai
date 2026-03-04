@@ -122,14 +122,18 @@ const vertexAI = buildVertexClient();
 // ──────────────────────────────────────────────────────────────────────────────
 
 const EXTRACTION_PROMPT = `
-You are an expert medical lab report parser.
+You are an expert medical lab report parser. Your output will be parsed by code. You MUST follow the rules strictly.
 
-Your job: act as a top-tier, highly accurate medical professional (the "best doctor"). Read the attached lab report PDF and extract THREE things:
+CRITICAL: You must return ONLY a single valid JSON object. Nothing else.
+- No text, explanation, or comment before or after the JSON.
+- No markdown (no \`\`\`json or \`\`\`).
+- Start your response with { and end with }. The entire response must be parseable as JSON.
+- For PDFs with many pages, include EVERY test from every page. Do not truncate. Output the complete JSON.
+
+Your job: Read the attached lab report PDF and extract:
 1. All patient/report metadata from the report header
-2. Every single test result from the report body
-3. A tremendous, highly accurate overall medical assessment and score based on the entire report's context.
-
-Return ONLY a valid JSON object — no explanation, no markdown, no code fences, nothing else.
+2. Every single test result from the report body (every parameter must have testName, value, unit, referenceRange)
+3. An overall medical assessment (healthScore 0-100 and overallRecommendations array)
 
 The JSON must follow this EXACT structure:
 {
@@ -171,18 +175,15 @@ The JSON must follow this EXACT structure:
 }
 
 Rules you MUST follow:
-1. For patient.gender: look for words like Male/Female/M/F/Sex — map to exactly 'male', 'female', or 'other'.
-2. For patient.age: extract only the number (e.g. "45 Yrs" -> 45, "F/45Y" -> 45).
-3. Group test results by their section/panel heading in the PDF.
-4. If tests have no clear group heading, use profileName: "General Panel".
-5. Range "70 - 100"  -> min: 70,  max: 100, text: null
-6. Range "< 200"     -> min: null, max: 200, text: "< 200"
-7. Range "> 40"      -> min: 40,  max: null, text: "> 40"
-8. No reference range -> referenceRange: null
-9. NEVER put units inside the value field.
-10. Include EVERY test — do NOT skip any.
-11. Do NOT invent or hallucinate data — for test parameters, ONLY extract what is actually printed in the PDF.
-12. For the aiAssessment, provide a highly accurate, critical medical evaluation. This is healthcare-related, so be rigorous. Do not give any financial advice or generic filler defaults. Provide a true health score based on the severity of the flags.
+1. Output ONLY the JSON object. No preamble, no "Here is the JSON", no trailing text.
+2. patient.gender: exactly 'male', 'female', or 'other' (lowercase).
+3. patient.age: number only (e.g. 45).
+4. Group test results by section/panel heading. No heading -> profileName: "General Panel".
+5. referenceRange: "70 - 100" -> min: 70, max: 100, text: null; "< 200" -> min: null, max: 200, text: "< 200"; "> 40" -> min: 40, max: null, text: "> 40"; none -> null.
+6. value: numeric as number, qualitative (Positive/Negative) as string. Never put units in value.
+7. Include EVERY test from the PDF. For long reports (many pages), output the FULL JSON — do not stop early.
+8. Do not invent data. Only extract what is printed. Every parameter must have testName, value (never null if present in PDF), unit, referenceRange.
+9. aiAssessment: healthScore (number 0-100), overallRecommendations (array of strings). Be rigorous and clinical.
 `;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -198,11 +199,16 @@ export async function parsePdfWithGemini(pdfBuffer: Buffer): Promise<GeminiLabRe
     const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-001';
     console.log(`[vertex] Using model: ${modelName}`);
 
+    // Gemini 2.0 Flash supports max 8192 output tokens; use env to override (capped at 8192)
+    const maxOutputTokens = Math.min(
+        parseInt(process.env.GEMINI_MAX_OUTPUT_TOKENS || '8192', 10) || 8192,
+        8192
+    );
     const model = vertexAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-            temperature: 0,       // Deterministic — critical for accurate parsing
-            maxOutputTokens: 8192,
+            temperature: 0,
+            maxOutputTokens: Math.max(2048, maxOutputTokens),
         },
     });
 
@@ -230,20 +236,36 @@ export async function parsePdfWithGemini(pdfBuffer: Buffer): Promise<GeminiLabRe
         throw new Error('Gemini returned no candidates — PDF may be unreadable or too large.');
     }
 
-    let rawText = candidate.content.parts[0].text ?? '';
+    // Concatenate ALL parts — long responses (many pages) can be split across multiple parts
+    const rawText = (candidate.content.parts ?? [])
+        .map((p: { text?: string | null }) => p.text ?? '')
+        .join('')
+        .trim();
 
-    // Strip markdown code fences if Gemini wraps the JSON in them
-    rawText = rawText.trim();
-    if (rawText.startsWith('```')) {
-        rawText = rawText.replace(/^```[a-z]*\n?/, '').replace(/```\s*$/, '').trim();
+    if (!rawText) {
+        throw new Error('Gemini returned empty content.');
+    }
+
+    // Strip markdown code fences if present
+    let jsonStr = rawText;
+    if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```[a-z]*\n?/, '').replace(/\s*```\s*$/, '').trim();
+    }
+
+    // Extract the outermost JSON object (handles trailing text or extra whitespace)
+    const firstBrace = jsonStr.indexOf('{');
+    const lastBrace = jsonStr.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
     }
 
     let parsed: GeminiLabResult;
     try {
-        parsed = JSON.parse(rawText) as GeminiLabResult;
-    } catch {
+        parsed = JSON.parse(jsonStr) as GeminiLabResult;
+    } catch (parseErr: any) {
+        const preview = jsonStr.length > 500 ? `${jsonStr.substring(0, 500)}...` : jsonStr;
         throw new Error(
-            `Gemini returned invalid JSON. First 400 chars: ${rawText.substring(0, 400)}`
+            `Gemini returned invalid JSON (length ${jsonStr.length}). Parse error: ${parseErr.message}. Preview: ${preview}`
         );
     }
 
@@ -251,12 +273,31 @@ export async function parsePdfWithGemini(pdfBuffer: Buffer): Promise<GeminiLabRe
         throw new Error('Gemini output is missing the "profiles" array.');
     }
 
-    // Non-fatal — create an empty patient object if Gemini omitted it
+    // Normalise profiles: require testName; drop parameters with null/undefined value so response is consistent
+    parsed.profiles = parsed.profiles.map((profile) => ({
+        profileName: profile.profileName ?? 'General Panel',
+        parameters: (profile.parameters ?? [])
+            .filter((p) => p && String(p.testName ?? '').trim() && (p.value !== undefined && p.value !== null))
+            .map((p) => ({
+                testName: String(p.testName ?? '').trim(),
+                value: p.value,
+                unit: p.unit ?? null,
+                referenceRange: p.referenceRange ?? null,
+            })),
+    }));
+
     if (!parsed.patient) {
         parsed.patient = {
             patientName: null, age: null, gender: null,
             patientId: null, labId: null, reportId: null,
             reportDate: null, packageName: null,
+        };
+    }
+
+    if (!parsed.aiAssessment || typeof parsed.aiAssessment.healthScore !== 'number') {
+        parsed.aiAssessment = {
+            healthScore: 0,
+            overallRecommendations: parsed.aiAssessment?.overallRecommendations ?? [],
         };
     }
 

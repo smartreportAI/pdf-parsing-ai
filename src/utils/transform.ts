@@ -138,7 +138,7 @@ export function toParseAndReportOutput(
     labReport: LabReportResponse,
     options?: { tenantId?: string }
 ): ParseAndReportOutput {
-    const tenantId = options?.tenantId ?? process.env.TENANT_ID ?? 'Demo_user';
+    const tenantId = options?.tenantId ?? process.env.TENANT_ID ?? 'demo';
     const { patient, profiles, aiAssessment } = labReport;
 
     const reportDataProfiles: ParseAndReportProfile[] = profiles.map((profile) => ({
