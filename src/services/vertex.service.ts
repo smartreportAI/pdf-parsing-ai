@@ -15,25 +15,61 @@ import * as path from 'path';
 // ──────────────────────────────────────────────────────────────────────────────
 
 function initCredentials(): void {
-    let rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
+    const rawJson = process.env.GOOGLE_CREDENTIALS_JSON;
 
     // Check if we are running in a production deployment like Render
     if (rawJson) {
         try {
             // Validate the JSON before writing it
-            JSON.parse(rawJson);
+            const parsed = JSON.parse(rawJson);
+            if (parsed.type !== 'service_account' || !parsed.project_id) {
+                throw new Error(
+                    'GOOGLE_CREDENTIALS_JSON must be a Google Cloud service account key (type "service_account" with project_id).'
+                );
+            }
             const tmpPath = path.join(os.tmpdir(), 'gcp-credentials.json');
-            // Write it cleanly to the tmp file
             fs.writeFileSync(tmpPath, rawJson, { encoding: 'utf-8' });
             process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
             console.log('[vertex] Successfully loaded & wrote credentials from GOOGLE_CREDENTIALS_JSON');
         } catch (err: any) {
-            console.error('[vertex] FATAL ERROR: GOOGLE_CREDENTIALS_JSON is not a valid JSON string.');
-            console.error('[vertex] Please double-check the copying and pasting in your Render Dashboard settings.');
+            const msg = err.message || String(err);
+            if (msg.includes('service_account') && msg.includes('project_id')) {
+                throw err;
+            }
+            throw new Error(
+                'GOOGLE_CREDENTIALS_JSON is not valid JSON. On Render: use the env var GOOGLE_CREDENTIALS_JSON and paste the entire service account JSON (minify to one line to avoid newline issues).'
+            );
         }
     } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        console.log(`[vertex] Using local credentials file at: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
+        let credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+        if (!fs.existsSync(credPath)) {
+            // Render: Secret Files are mounted in service root for Node, not only /etc/secrets/
+            const fileName = path.basename(credPath);
+            const fallbacks = [
+                path.join(process.cwd(), fileName),
+                path.join(process.cwd(), 'gcp-key.json'),
+                path.join('/etc/secrets', fileName),
+                '/etc/secrets/gcp-key.json',
+            ].filter((p) => p !== credPath);
+            const found = fallbacks.find((p) => fs.existsSync(p));
+            if (found) {
+                credPath = found;
+                process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+                console.log(`[vertex] Credentials file not at configured path; using: ${credPath}`);
+            } else {
+                throw new Error(
+                    `GOOGLE_APPLICATION_CREDENTIALS is set to "${process.env.GOOGLE_APPLICATION_CREDENTIALS}" but that file does not exist. On Render: set env to "gcp-key.json" (Secret File in service root) or use GOOGLE_CREDENTIALS_JSON with the full JSON.`
+                );
+            }
+        }
+        console.log(`[vertex] Using credentials file at: ${credPath}`);
     } else {
+        const isProduction = process.env.NODE_ENV === 'production';
+        if (isProduction) {
+            throw new Error(
+                'No Google credentials found. Set GOOGLE_CREDENTIALS_JSON (full service account JSON string) in Render Dashboard → Environment.'
+            );
+        }
         console.warn('[vertex] WARNING: Neither GOOGLE_CREDENTIALS_JSON nor GOOGLE_APPLICATION_CREDENTIALS is set.');
     }
 }
@@ -46,6 +82,36 @@ function buildVertexClient(): VertexAI {
         throw new Error('Missing required env var: GOOGLE_PROJECT_ID');
     }
     return new VertexAI({ project: projectId, location });
+}
+
+/**
+ * Returns credential status for the /auth-check endpoint (no secrets exposed).
+ */
+export function getVertexCredentialStatus(): { ok: boolean; projectId: string | null; message: string } {
+    const projectId = process.env.GOOGLE_PROJECT_ID || null;
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!credPath) {
+        return {
+            ok: false,
+            projectId,
+            message: 'GOOGLE_APPLICATION_CREDENTIALS is not set. On Render, set GOOGLE_CREDENTIALS_JSON to the full service account JSON.',
+        };
+    }
+    if (!fs.existsSync(credPath)) {
+        return {
+            ok: false,
+            projectId,
+            message: `Credentials file not found at ${credPath}. Check that GOOGLE_CREDENTIALS_JSON was valid JSON.`,
+        };
+    }
+    if (!projectId) {
+        return { ok: false, projectId: null, message: 'GOOGLE_PROJECT_ID is not set.' };
+    }
+    return {
+        ok: true,
+        projectId,
+        message: 'Credentials and project ID are set. If API calls still fail, check service account has "Vertex AI User" and Vertex AI API is enabled.',
+    };
 }
 
 const vertexAI = buildVertexClient();

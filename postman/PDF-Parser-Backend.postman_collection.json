@@ -1,0 +1,108 @@
+{
+	"info": {
+		"_postman_id": "pdf-parser-backend-collection",
+		"name": "PDF Parser Backend",
+		"description": "Test the PDF Parser Backend locally and on Render.\n\n**Local:** `http://localhost:4000`\n**Deployed:** `https://pdf-parser-backend-ucsr.onrender.com`\n\nFor **Parse and Report**, use form-data key `pdf` and attach a PDF file.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url_local",
+			"value": "http://localhost:4000"
+		},
+		{
+			"key": "base_url_deployed",
+			"value": "https://pdf-parser-backend-ucsr.onrender.com"
+		}
+	],
+	"item": [
+		{
+			"name": "Local (localhost:4000)",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{base_url_local}}/health",
+						"description": "Liveness check. Returns 200 if the service is running."
+					}
+				},
+				{
+					"name": "Auth Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{base_url_local}}/auth-check",
+						"description": "Verifies Google/Vertex credentials are loaded. 200 = credentials OK; 503 = missing or invalid."
+					}
+				},
+				{
+					"name": "Parse and Report",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "pdf",
+									"type": "file",
+									"src": [],
+									"description": "Lab report PDF file (max 20 MB)"
+								}
+							]
+						},
+						"url": "{{base_url_local}}/parse-and-report",
+						"description": "Upload a PDF lab report. Returns extracted patient info, test results with HIGH/LOW/NORMAL, and recommendations. Form field must be named `pdf`."
+					}
+				}
+			],
+			"description": "Requests against the backend running locally (default port 4000)."
+		},
+		{
+			"name": "Deployed (Render)",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{base_url_deployed}}/health",
+						"description": "Liveness check for the deployed service on Render."
+					}
+				},
+				{
+					"name": "Auth Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{base_url_deployed}}/auth-check",
+						"description": "Verifies Vertex AI credentials on the deployed instance."
+					}
+				},
+				{
+					"name": "Parse and Report",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "pdf",
+									"type": "file",
+									"src": [],
+									"description": "Lab report PDF file (max 20 MB)"
+								}
+							]
+						},
+						"url": "{{base_url_deployed}}/parse-and-report",
+						"description": "Upload a PDF to the deployed backend. Form field must be named `pdf`."
+					}
+				}
+			],
+			"description": "Requests against the deployed backend: https://pdf-parser-backend-ucsr.onrender.com"
+		}
+	]
+}

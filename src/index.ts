@@ -35,5 +35,6 @@ app.listen(PORT, () => {
     console.log('Endpoints:');
     console.log(`  POST http://localhost:${PORT}/parse-and-report  ← main endpoint`);
     console.log(`  GET  http://localhost:${PORT}/health            ← liveness check`);
+    console.log(`  GET  http://localhost:${PORT}/auth-check        ← credential status (for Render debug)`);
     console.log('');
 });

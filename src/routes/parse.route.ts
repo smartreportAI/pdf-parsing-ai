@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { parsePdfWithGemini } from '../services/vertex.service';
+import { parsePdfWithGemini, getVertexCredentialStatus } from '../services/vertex.service';
 import { buildLabReport } from '../utils/transform';
 
 const router = Router();
@@ -92,6 +92,20 @@ router.post(
 
 router.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', service: 'pdf-parser-backend', timestamp: new Date().toISOString() });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /auth-check — verify Google/Vertex credentials are loaded (for debugging)
+// ──────────────────────────────────────────────────────────────────────────────
+
+router.get('/auth-check', (_req: Request, res: Response) => {
+    const status = getVertexCredentialStatus();
+    res.status(status.ok ? 200 : 503).json({
+        credentials: status.ok ? 'loaded' : 'missing_or_invalid',
+        projectId: status.projectId,
+        message: status.message,
+        timestamp: new Date().toISOString(),
+    });
 });
 
 export default router;
