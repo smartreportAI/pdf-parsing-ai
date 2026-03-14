@@ -125,10 +125,8 @@ const EXTRACTION_PROMPT = `
 You are an expert medical lab report parser. Your output will be parsed by code. You MUST follow the rules strictly.
 
 CRITICAL: You must return ONLY a single valid JSON object. Nothing else.
-- No text, explanation, or comment before or after the JSON.
-- No markdown (no \`\`\`json or \`\`\`).
-- Start your response with { and end with }. The entire response must be parseable as JSON.
-- For PDFs with many pages, include EVERY test from every page. Do not truncate. Output the complete JSON.
+- Output MINIFIED JSON. Absolutely NO spaces, NO newlines, NO indentation for formatting. This is critical to save tokens for large reports.
+- Do not invent data.
 
 Your job: Read the attached lab report PDF and extract:
 1. All patient/report metadata from the report header
@@ -150,9 +148,7 @@ The JSON must follow this EXACT structure:
   "aiAssessment": {
     "healthScore": "number — a true, critical health score out of 100 based directly on the severity of the flagged parameters. Be rigorous.",
     "overallRecommendations": [
-      "string — Actionable, highly specific clinical recommendation 1 (e.g. 'Initiate strict glycemic control protocol due to HbA1c 6.4%...')",
-      "string — Actionable, highly specific clinical recommendation 2",
-      "string — Actionable, highly specific clinical recommendation 3"
+      "string — Actionable, highly specific clinical recommendation 1 (e.g. 'Initiate strict glycemic control protocol...')"
     ]
   },
   "profiles": [
@@ -166,7 +162,7 @@ The JSON must follow this EXACT structure:
           "referenceRange": {
             "min": "number or null",
             "max": "number or null",
-            "text": "string or null — e.g. '< 200', '> 40', 'Negative'"
+            "text": "string or null"
           }
         }
       ]
@@ -175,15 +171,15 @@ The JSON must follow this EXACT structure:
 }
 
 Rules you MUST follow:
-1. Output ONLY the JSON object. No preamble, no "Here is the JSON", no trailing text.
-2. patient.gender: exactly 'male', 'female', or 'other' (lowercase).
+1. Output ONLY the JSON object. MINIFIED (no spaces).
+2. patient.gender: exactly 'male', 'female', or 'other'.
 3. patient.age: number only (e.g. 45).
 4. Group test results by section/panel heading. No heading -> profileName: "General Panel".
-5. referenceRange: "70 - 100" -> min: 70, max: 100, text: null; "< 200" -> min: null, max: 200, text: "< 200"; "> 40" -> min: 40, max: null, text: "> 40"; none -> null.
+5. referenceRange: "70 - 100" -> min: 70, max: 100, text: null; "< 200" -> min: null, max: 200, text: "< 200"; none -> null.
 6. value: numeric as number, qualitative (Positive/Negative) as string. Never put units in value.
-7. Include EVERY test from the PDF. For long reports (many pages), output the FULL JSON — do not stop early.
-8. Do not invent data. Only extract what is printed. Every parameter must have testName, value (never null if present in PDF), unit, referenceRange.
-9. aiAssessment: healthScore (number 0-100), overallRecommendations (array of strings). Be rigorous and clinical.
+7. Include EVERY test from the PDF.
+8. Every parameter must have testName, value (never null if present in PDF), unit, referenceRange.
+9. aiAssessment: healthScore (number 0-100), overallRecommendations (array of strings).
 `;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -204,11 +200,14 @@ export async function parsePdfWithGemini(pdfBuffer: Buffer): Promise<GeminiLabRe
         parseInt(process.env.GEMINI_MAX_OUTPUT_TOKENS || '8192', 10) || 8192,
         8192
     );
+    
+    // Add prompt instructions to minify the output to avoid token limits
     const model = vertexAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
             temperature: 0,
             maxOutputTokens: Math.max(2048, maxOutputTokens),
+            responseMimeType: 'application/json',
         },
     });
 
